@@ -1,0 +1,614 @@
+---
+title: "Cell Growth Analysis"
+output: html_document
+date: "2024-11-8"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Analy1sis pipeline:
+STEP1: Import and Check Data 
+STEP2: Summary Stats and Graphs
+STEP3: Check Assumptions - Variance and Normality 
+STEP4: Run Appropriate Stat Tests
+
+
+
+
+```{r load libraries}
+
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(ggpubr)
+library(ggthemes)
+library(ggplot2)
+
+```
+
+#STEP1: Import and Check Data 
+```{r load and check data}
+
+count_data<- read_excel("00_raw_data/r.SAB01.counts.xlsx", 
+    sheet = "r.SAB01")
+count_data
+
+treatment_order <- readRDS("01_tidy_data/treatment_order.rds")
+color_map <- read_csv("01_tidy_data/color_map.csv")
+
+count_data$day <- factor(count_data$day, levels = c("-2", "3", "4", "5", "6", "7", "8", "9", "10")) 
+
+
+```
+
+
+
+```{r data visualization} 
+
+boxplot<-ggboxplot(count_data, x = "day", y = "cell_cm2", 
+          color = "cell", 
+          ylab = "Cell per Cm2", xlab = "Day")+
+    facet_grid(.~treatment, labeller = label_both)
+boxplot
+
+```
+
+
+
+#STEP2: Summary Statistics
+```{r summary statistic}
+
+counts_sumstats <- group_by(count_data, cell, day, treatment) %>%
+  summarise(mean=mean(cell_cm2), sd=sd(cell_cm2)) %>%
+  arrange(desc(mean))
+
+write.csv(counts_sumstats,"02_tables/counts_sumstats.csv")
+print(counts_sumstats)
+
+
+```
+
+
+
+#GRAPHS 
+
+```{r grid overview of data }
+
+line.grid<- ggplot(counts_sumstats, aes(x=day, y=mean, color=treatment, group=treatment)) +
+  scale_color_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_line(size=1)+
+  geom_point()+
+  geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.5, size=1,
+                 position=position_dodge(0.05))+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "")+
+  facet_grid(cell ~ treatment)
+line.grid
+
+
+
+linebf.grid<- ggplot(count_data, aes(x=day, y=cell_cm2, fill=treatment, group=treatment))+
+  scale_fill_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_point(shape=21) +
+  geom_smooth(method = "loess",
+              color="black",
+              size=0.5)+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "")+
+  facet_grid(cell ~ treatment)
+linebf.grid
+
+```
+
+```{r save }
+ggsave(linebf.grid, path = "03_plots/cell_growth",
+      filename = str_c("linebf_grid_",  format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "-%H%M"), ".pdf"),
+       height = 4, width = 10, units = "in")
+
+ggsave(line.grid, path = "03_plots/cell_growth",
+      filename = str_c("line_grid_",  format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "-%H%M"), ".pdf"),
+       height = 4, width = 10, units = "in")
+```
+
+```{r bar graph}
+
+#Separated by treatment
+bar1<-ggplot(counts_sumstats, aes(x=day, y=mean, fill=cell)) + 
+  scale_fill_manual(values = setNames(color_map$Color, color_map$Group)) +
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "")+
+  geom_bar(width=.6, stat = "identity", position = position_dodge(.7))+
+  geom_errorbar( aes(x=day, ymin=mean-sd, ymax=mean+sd), width=0.4, colour="black", alpha=0.7, size=.5, position = position_dodge(width = 0.7))+
+  facet_wrap(~factor(treatment, levels = treatment_order))+
+   geom_point(data = count_data, 
+             mapping = aes(x = day, y = cell_cm2), position = position_dodge(width = 0.7))
+bar1
+
+#Separated by cell
+bar2<-ggplot(counts_sumstats, aes(x=day, y=mean, fill=factor(treatment, level = treatment_order))) + 
+  scale_fill_manual(values = setNames(color_map$Color, color_map$Group)) +
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "")+
+  geom_bar(width=.6, stat = "identity", position = position_dodge(.7))+
+  geom_errorbar( aes(x=day, ymin=mean-sd, ymax=mean+sd), width=0.4, colour="black", alpha=0.7, size=.5, position = position_dodge(width = 0.7))+
+  facet_wrap(~cell)+
+  geom_point(data = count_data, 
+             mapping = aes(x = day, y = cell_cm2), position = position_dodge(width = 0.7))
+bar2
+
+
+```
+
+ 
+```{r simple line graph}
+
+#sperated by treatment
+line1<- ggplot(counts_sumstats, aes(x=day, y=mean, color=cell, group=cell)) + 
+  scale_color_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1300000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_line(size=1)+
+  geom_point()+
+  geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.5, size=1,
+                 position=position_dodge(0.05))+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "" )+
+  facet_wrap(~factor(treatment, level = treatment_order), nrow=1)
+line1
+
+#sperated by cell
+line2<- ggplot(counts_sumstats, aes(x=day, y=mean, color=treatment, group=treatment)) +
+  scale_color_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1300000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_line(size=1)+
+  geom_point()+
+  geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.5, size=1,
+                 position=position_dodge(0.05))+
+  theme_bw() +
+  ggtitle("Cell Growth Over Time") +
+  xlab("Day") +
+  ylab("Cells per Cm2") +
+  facet_wrap(~cell)
+line2
+
+
+```
+
+
+```{r best fit line graph}
+#sperated by treatment
+linebf1<- ggplot(count_data, aes(x=day, y=cell_cm2, fill=cell, group=cell))+
+  scale_fill_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_point(shape=21) +
+  geom_smooth(method = "loess",
+              color="black",
+              size=0.5)+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "" )+
+  facet_wrap(~factor(treatment, levels=c('CTRL','SAG','VIS','RA', 'RA&SAG', 'RA&VIS')),nrow = 1)
+linebf1
+
+#sperated by cell
+linebf2<- ggplot(count_data, aes(x=day, y=cell_cm2, fill=treatment, group=treatment))+
+  scale_fill_manual(values = setNames(color_map$Color, color_map$Group))+
+  scale_y_continuous(limits = c(0, 1200000), breaks = seq(0, 12000000, 200000),label=scales::comma)+
+  geom_point(shape=21) +
+  geom_smooth(method = "loess",
+              color="black",
+              size=0.5)+
+  theme_bw() +
+  labs(
+  title = "Cell Growth Over Time",
+  x = "Day",
+  y = "Cells per Cm2",
+  fill = "" )+
+  facet_wrap(~cell)
+linebf2
+
+```
+
+```{r create subfolder for individual treatment graphs}
+# Define the path and folder name
+folder_path <- "03_plots/cell_growth"
+
+# Create the folder
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+  message("Folder created at: ", folder_path)
+} else {
+  message("Folder already exists at: ", folder_path)
+}
+```
+
+
+```{r save}
+#bargraphs
+ggsave(bar1, path = "03_plots/cell_growth",
+      filename = str_c("bar1-",  format(Sys.Date(), "%Y-%m-%d"), format(Sys.time(), "_%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+
+ggsave(bar2, path = "03_plots/cell_growth",
+      filename = str_c("bar2-",  format(Sys.Date(), "%Y-%m-%d"), format(Sys.time(), "_%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+
+#line graph 
+ggsave(line1, path = "03_plots/cell_growth",
+      filename = str_c("line1-",  format(Sys.Date(), "%Y-%m-%d"), format(Sys.time(), "_%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+
+ggsave(line2, path = "03_plots/cell_growth",
+      filename = str_c("line2-",  format(Sys.Date(), "%Y-%m-%d"), format(Sys.time(), "_%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+
+
+#best fit graph 
+ggsave(linebf1, path = "03_plots/cell_growth",
+      filename = str_c("linebf1-",  format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "-%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+
+ggsave(linebf2, path = "03_plots/cell_growth",
+      filename = str_c("linebf2-",  format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "-%H%M"), ".pdf"),
+       height = 3, width = 6, units = "in")
+```
+
+
+
+# Step3: Check  Assumptions
+```{r variance and normality }
+
+library(car) 
+
+# Data frame to store results
+assumption_results <- data.frame(
+  Day = character(),
+  Treatment1 = character(),
+  Treatment2 = character(),
+  Cell1 = character(),
+  Cell2 = character(),
+  Comparison_Group = character(),
+  Control_Shapiro_PValue = numeric(),
+  Treatment_Shapiro_PValue = numeric(),
+  Normality = character(),
+  Levene_PValue = numeric(),
+  Variance_equal = logical(),
+  stringsAsFactors = FALSE
+)
+
+# Specify control label and cells for comparison
+control_label <- "CTRL"
+control_cell <- "S3D21"
+treatment_cell <- "S3T21"
+
+# Loop  days to run tests
+for (day_val in unique(count_data$day)) {
+  
+  # Filter  for  current day
+  day_data <- count_data %>%
+    filter(day == day_val) %>%
+    select(cell, treatment, cell_cm2) %>%
+    na.omit()
+  
+  # Loop  cell types to compare each treatment to control
+  for (cell_type in unique(day_data$cell)) {
+    cell_data <- day_data %>% filter(cell == cell_type)
+    
+    # Filter control
+    control_data <- cell_data %>% filter(treatment == control_label)
+    
+    # Within each cell type loop through treatments for comparing against control
+    for (treatment_val in unique(cell_data$treatment)) {
+      if (treatment_val != control_label) {
+        
+        # Filter for treatment group 
+        treatment_data <- cell_data %>% filter(treatment == treatment_val)
+        
+        # Combine control and treatment data
+        comparison_data <- bind_rows(control_data, treatment_data)
+        
+        # Run tests if at least two groups (control and treatment)
+        if (n_distinct(comparison_data$treatment) >= 2) {
+          
+          # Shapiro-Wilk test for normality within each group, checking for identical values
+          control_shapiro <- if (length(unique(control_data$cell_cm2)) > 1) {
+            shapiro.test(control_data$cell_cm2)$p.value
+          } else {
+            NA  # No variability, can't run Shapiro-Wilk
+          }
+          
+          treatment_shapiro <- if (length(unique(treatment_data$cell_cm2)) > 1) {
+            shapiro.test(treatment_data$cell_cm2)$p.value
+          } else {
+            NA
+          }
+          
+          # Determine normality based on available Shapiro results
+          normality <- if (!is.na(control_shapiro) && !is.na(treatment_shapiro)) {
+            ifelse(control_shapiro > 0.05 & treatment_shapiro > 0.05, "Normal", "Not Normal")
+          } else {
+            "Indeterminate"
+          }
+          
+          # Levene’s test for homogeneity of variance 
+          levene_test <- leveneTest(cell_cm2 ~ treatment, data = comparison_data)
+          variance_equal <- levene_test$`Pr(>F)`[1] > 0.05  # TRUE if variances are equal
+          
+          # Store results for normality and variance tests in a single entry
+          assumption_results <- assumption_results %>%
+            bind_rows(data.frame(
+              Day = day_val,
+              Treatment1 = control_label,
+              Treatment2 = treatment_val,
+              Cell1 = cell_type,
+              Cell2 = "NA",
+              Comparison_Group = paste(cell_type, "--", treatment_val, "vs", control_label),
+              Control_Shapiro_PValue = control_shapiro,
+              Treatment_Shapiro_PValue = treatment_shapiro,
+              Normality = normality,
+              Levene_PValue = levene_test$`Pr(>F)`[1],
+              Variance_equal = variance_equal
+            ))
+        }
+      }
+    }
+  }
+  
+  # Loop through treatments to compare cell types within that treatment
+  for (treatment_val in unique(day_data$treatment)) {
+    treatment_data <- day_data %>% filter(treatment == treatment_val)
+    
+    # Run tests if there are at least two unique cell types
+    if (n_distinct(treatment_data$cell) >= 2) {
+      
+      # Filter data for the control and treatment cell types
+      control_data <- treatment_data %>% filter(cell == control_cell)
+      treatment_data <- treatment_data %>% filter(cell == treatment_cell)
+      
+      # Combine control and treatment data
+      comparison_data <- bind_rows(control_data, treatment_data)
+        
+      control_shapiro <- if (length(unique(control_data$cell_cm2)) > 1) {
+        shapiro.test(control_data$cell_cm2)$p.value
+      } else {
+        NA
+      }
+      
+      treatment_shapiro <- if (length(unique(treatment_data$cell_cm2)) > 1) {
+        shapiro.test(treatment_data$cell_cm2)$p.value
+      } else {
+        NA
+      }
+      
+      normality <- if (!is.na(control_shapiro) && !is.na(treatment_shapiro)) {
+        ifelse(control_shapiro > 0.05 & treatment_shapiro > 0.05, "Normal", "Not Normal")
+      } else {
+        "Indeterminate"
+      }
+
+      levene_test <- leveneTest(cell_cm2 ~ cell, data = comparison_data)
+      variance_equal <- levene_test$`Pr(>F)`[1] > 0.05  # TRUE if variances are equal
+
+      assumption_results <- assumption_results %>%
+        bind_rows(data.frame(
+          Day = day_val,
+          Treatment1 = treatment_val,
+          Treatment2 = "NA",
+          Cell1 = control_cell,
+          Cell2 = treatment_cell,
+          Comparison_Group = paste(treatment_val, "--", treatment_cell, "vs", control_cell),
+          Control_Shapiro_PValue = control_shapiro,  
+          Treatment_Shapiro_PValue = treatment_shapiro,
+          Normality = normality,
+          Levene_PValue = levene_test$`Pr(>F)`[1],
+          Variance_equal = variance_equal
+        ))
+    }
+  }
+}
+
+# View the assumption test results
+print(assumption_results)
+
+```
+
+```{r save assumptions }
+write.csv(assumption_results,"02_tables/cell_growth_assumptions.csv")
+
+```
+
+
+
+# STEP3: Run Statistical Analysis
+Common tests in one loop
+1. Comparison of T21 vs D21 for each treatment for each day
+2. Comparision of treatment vs control for each cell type for each day 
+
+```{r comparison }
+results_cell <- data.frame(
+  Day = character(),
+  Treatment = character(),
+  Paired_TTest_PValue = numeric(),
+  Kruskal_Wallis_PValue = numeric(),
+  Welch_TTest_PValue = numeric(),
+  Wilcoxon_PValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+results_treatment <- data.frame(
+  Day = character(),
+  Cell = character(),
+  Compared_Treatment = character(),  
+  Paired_TTest_PValue = numeric(),
+  Kruskal_Wallis_PValue = numeric(),
+  Welch_TTest_PValue = numeric(),
+  Wilcoxon_PValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Specify control group
+control_group <- "CTRL"  
+treatment_groups <- unique(count_data$treatment[count_data$treatment != control_group])
+
+# Outer loop: Compare each treatment to the control group
+for (treatment_val in treatment_groups) {
+  
+  # Subset data for the current treatment and control
+  subset_data <- count_data %>%
+    filter(treatment %in% c(control_group, treatment_val))
+
+  # Inner Loop 1: Compare cell types within a treatment and day for the cell_cm2 measurement
+  for (day_val in unique(subset_data$day)) {
+    for (current_treatment in unique(subset_data$treatment)) {
+      
+      # Filter data for current day and treatment
+      data_day_treatment <- subset_data %>%
+        filter(day == day_val, treatment == current_treatment)
+      
+      # Initialize p-values as NA
+      wilcox_p <- NA
+      welch_p <- NA
+      paired_p <- NA
+      kruskal_p <- NA
+      
+      # Perform tests if there are at least two cell types
+      if (length(unique(data_day_treatment$cell)) > 1) {
+        
+        # Kruskal-Wallis test
+        kruskal_test <- kruskal.test(cell_cm2 ~ cell, data = data_day_treatment)
+        kruskal_p <- kruskal_test$p.value
+
+        # Run tests if exactly two cell types are present
+        if (length(unique(data_day_treatment$cell)) == 2) {
+          
+          # Wilcoxon test with exact = FALSE to handle ties
+          wilcox_test <- tryCatch({
+            wilcox.test(cell_cm2 ~ cell, data = data_day_treatment, exact = FALSE)
+          }, error = function(e) NA)
+          wilcox_p <- if (!is.na(wilcox_test)) wilcox_test$p.value else NA
+
+          # Welch t-test only if data isn't constant
+          if (var(data_day_treatment$cell_cm2) > 0) {
+            welch_test <- t.test(cell_cm2 ~ cell, data = data_day_treatment, var.equal = FALSE)
+            welch_p <- welch_test$p.value
+            
+            # Paired t-test if matching subjects are found and data isn’t constant
+            if (!any(duplicated(data_day_treatment$subject))) {
+              paired_test <- t.test(cell_cm2 ~ cell, data = data_day_treatment, paired = TRUE)
+              paired_p <- paired_test$p.value
+            }
+          }
+        }
+        
+        # Store results for cell type comparisons
+        results_cell <- rbind(results_cell, data.frame(
+          Day = day_val,
+          Treatment = current_treatment,
+          Paired_TTest_PValue = paired_p,
+          Kruskal_Wallis_PValue = kruskal_p,
+          Welch_TTest_PValue = welch_p,
+          Wilcoxon_PValue = wilcox_p
+        ))
+      }
+    }
+  }
+  
+  # Inner Loop 2: Compare treatments within each cell type and day for the cell_cm2 measurement
+  for (day_val in unique(subset_data$day)) {
+    for (cell_val in unique(subset_data$cell)) {
+      
+      # Filter data for current day and cell type
+      data_day_cell <- subset_data %>%
+        filter(day == day_val, cell == cell_val)
+      
+      # Initialize p-values as NA
+      wilcox_p <- NA
+      welch_p <- NA
+      paired_p <- NA
+      kruskal_p <- NA
+      
+      # Perform tests only if there are at least two treatments
+      if (length(unique(data_day_cell$treatment)) > 1) {
+        
+        # Kruskal-Wallis test
+        kruskal_test <- kruskal.test(cell_cm2 ~ treatment, data = data_day_cell)
+        kruskal_p <- kruskal_test$p.value
+
+        # Run tests if exactly two treatments are present
+        if (length(unique(data_day_cell$treatment)) == 2) {
+          
+          # Wilcoxon test with exact = FALSE to handle ties
+          wilcox_test <- tryCatch({
+            wilcox.test(cell_cm2 ~ treatment, data = data_day_cell, exact = FALSE)
+          }, error = function(e) NA)
+          wilcox_p <- if (!is.na(wilcox_test)) wilcox_test$p.value else NA
+          
+          # Welch t-test only if data isn't constant
+          if (var(data_day_cell$cell_cm2) > 0) {
+            welch_test <- t.test(cell_cm2 ~ treatment, data = data_day_cell, var.equal = FALSE)
+            welch_p <- welch_test$p.value
+            
+            # Paired t-test if matching subjects are found and data isn’t constant
+             if (!any(duplicated(data_day_cell$subject))) {
+              paired_test <- t.test(cell_cm2 ~ treatment, data = data_day_cell, paired = TRUE)
+              paired_p <- paired_test$p.value
+            }
+          }
+        }
+        
+        # Store results
+        results_treatment <- rbind(results_treatment, data.frame(
+          Day = day_val,
+          Cell = cell_val,
+          Compared_Treatment = paste(treatment_val, "vs", control_group),
+          Paired_TTest_PValue = paired_p,
+          Kruskal_Wallis_PValue = kruskal_p,
+          Welch_TTest_PValue = welch_p,
+          Wilcoxon_PValue = wilcox_p
+        ))
+      }
+    }
+  }
+}
+
+print(results_cell)
+print(results_treatment)
+ 
+```
+
+
+```{r save stats }
+write.csv(results_cell,"02_tables/cell_growth_cell_stats.csv")
+write.csv(results_treatment,"02_tables/cell_growth_treatment_stats.csv")
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

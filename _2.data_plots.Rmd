@@ -1,0 +1,505 @@
+---
+title: "First Pass Data Visulization- SAB01"
+output: html_document
+date: "2024-11-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Inspection and Summary Stats:
+STEP1: Load Tidy Data 
+STEP2: Generate Summary Statistics 
+STEP3: Generate First Pass Bar Graphs of Data
+
+
+#STEP1: Load All Data Needed
+```{r load data, message=FALSE, warning=FALSE}
+
+library(readr)
+data <- read_csv("01_tidy_data/data.csv")
+long_data <- read_csv("01_tidy_data/long_data.csv")
+color_map <- read_csv("01_tidy_data/color_map.csv")
+measurements <- readRDS("01_tidy_data/measurements.rds")
+treatment_order <- readRDS("01_tidy_data/treatment_order.rds")
+
+```
+
+#STEP2: Summary Statistics
+Loop through each measurement and produce summary stats for each
+
+```{r sumstats}
+
+library(dplyr)
+library(tidyverse)
+
+
+results_list <- list() #empty list to store results
+
+
+for (measurement in measurements) {
+  summary_data <- data %>%
+    group_by(cell, day, treatment) %>%
+    summarise(mean = mean(get(measurement), na.rm = TRUE), 
+              sd = sd(get(measurement), na.rm = TRUE)) %>%
+    arrange(desc(mean))
+  
+  summary_data <- summary_data %>%
+    mutate(measurement = measurement) #creates column for measurement 
+  
+  # Store the result in  list with name corresponding to measure
+  results_list[[measurement]] <- summary_data
+}
+
+sumstats_all <- bind_rows(results_list) #combine into one dataframe
+print(sumstats_all)
+
+# save
+write.csv(sumstats_all,"02_tables/sumstats_all.csv", row.names = FALSE)
+
+
+```
+
+
+
+
+#STEP3: DATA VISUALIZATION
+* Run theme_publication in theme_Publication.R *
+Data needed: sumstats and raw data which is already loaded 
+
+```{r all measurments }
+
+library(ggplot2)
+library(ggpubr)
+library(ggthemes)
+
+# Convert measurement and treatment to a factor with the specified order -- to be used in the facet
+sumstats_all$measurement <- factor(sumstats_all$measurement, levels = measurements)
+sumstats_all$treatment <- factor(sumstats_all$treatment, levels = treatment_order)
+
+
+bargraph.all<- ggplot(sumstats_all, aes(x = interaction(day), y = mean, fill = cell)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(measurement ~ treatment, scales = "free_y") + 
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 0.2, position = position_dodge(0.9)) +
+  labs(title = "Bar Graph of Mean Values for Each Measurement",
+       x = "Day",
+       y = NULL,
+       fill = "Cell Type") +
+  theme_Publication() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 11),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+bargraph.all
+
+```
+
+
+```{r save}
+ggsave(bargraph.all, path = "03_plots",
+      filename = str_c("all.bargraph.pdf"),
+       height = 11, width = 10, units = "in")
+```
+
+#Generate graphs
+Plots for each measurement:
+
+(2) FACETED graphs
+(a) by treatment to compare T21vD21 
+(b) by cell to compare treatment 
+```{r create subfolder for individual treatment graphs}
+# Define the path and folder name
+folder_path <- "03_plots/faceted"
+
+# Create the folder
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+  message("Folder created at: ", folder_path)
+} else {
+  message("Folder already exists at: ", folder_path)
+}
+```
+
+```{r generating facet graphs}
+
+for (measure in measurements) {
+  measurement_data <- sumstats_all %>% 
+    filter(measurement == measure)
+  
+  raw_data_subset <- long_data %>%
+    filter(measurement == measure)
+  
+  # bar graph facet by treatment comparing cell type 
+  p <- ggplot(measurement_data, aes(x = factor(day), y = mean, fill = treatment, color= treatment)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), 
+           width = 0.7, size = 1, aes(alpha = cell, group = interaction(cell, treatment))) +
+    scale_y_continuous(limits = c(0, 100), labels = scales::percent_format(,1)) +
+    scale_fill_manual(name = "S3D21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_color_manual(name = "S3T21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+    geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, treatment)), 
+                width = 0.4, size = 0.5, position = position_dodge(width = 0.8), color = "black") +
+    geom_point(data = raw_data_subset, aes(x = factor(day), y = value, group = interaction(cell, treatment)), 
+             position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8), 
+             size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+    
+    facet_wrap(~factor(treatment, levels = treatment_order))+ # Facet by treatment, specify order 
+    labs(title = paste(measure, "- Comparing Cell Type within Treatment"),
+         x = "Day",
+         y = measure) +
+   theme_Publication() +
+   guides(
+    fill = guide_legend(order = 1, override.aes = list(alpha = 1)),
+    color = guide_legend(order = 2, override.aes = list(fill = NA)), 
+    alpha = "none"  # Hide alpha legend
+  ) 
+  
+  
+   # bar graph facet by cell comparing treatment
+  p2 <- ggplot(measurement_data, aes(x = factor(day), y = mean, fill = treatment, color= treatment)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), 
+           width = 0.7, size = 1, aes(alpha = cell, group = interaction(cell, treatment))) +
+    scale_y_continuous(limits = c(0, 100), labels = scales::percent_format(,1)) +
+    scale_fill_manual(name = "S3D21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_color_manual(name = "S3T21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+    geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, treatment)), 
+                width = 0.4, size = 0.5, position = position_dodge(width = 0.8), color = "black") +
+    geom_point(data = raw_data_subset, aes(x = factor(day), y = value, group = interaction(cell, treatment)), 
+             position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8), 
+             size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+     
+    facet_wrap(~cell)+ 
+    labs(title = paste(measure, "-  Comparing Treatment within Cell Type"),
+         x = "Day",
+         y = measure,
+         fill = "Treatment") +
+    theme_Publication() +
+   guides(
+    fill = guide_legend(order = 1, override.aes = list(alpha = 1)),
+    color = guide_legend(order = 2, override.aes = list(fill = NA)), 
+    alpha = "none"  # Hide alpha legend
+  ) 
+   
+  
+  # Save plots
+  ggsave(filename = paste0(measure, "_facet_treatment.pdf"), path = "03_plots/faceted",
+         plot = p, width = 10, height = 8, units = "in")
+  
+   ggsave(filename = paste0(measure, "_facet_cell.pdf"), path = "03_plots/faceted",
+         plot = p2, width = 10, height = 8, units = "in")
+}
+  
+
+#time stamps
+#  ggsave(filename = paste0(measure, "_facet_treatment", format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "-%H%M"), ".pdf"), path = "03_plots/faceted",
+ #        plot = p, width = 10, height = 8, units = "in")
+
+```
+
+
+(3)By treatment graphs 
+```{r create subfolder for individual treatment graphs}
+# Define the path and folder name
+folder_path <- "03_plots/bytreatment"
+
+# Create the folder
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+  message("Folder created at: ", folder_path)
+} else {
+  message("Folder already exists at: ", folder_path)
+}
+```
+
+```{r by treatment graphs}
+
+
+for (measure in measurements) {
+  summary_data <- sumstats_all %>% 
+    filter(measurement == measure)
+  
+  measure_data <- long_data %>%
+    filter(measurement == measure)
+  
+  # Loop through each treatment to plot individually
+  for (treatment_val in unique(measure_data$treatment)) {
+    
+    # Filter data for the current treatment
+    treatment_data <- measure_data %>% filter(treatment == treatment_val)
+    treatment_summary <- summary_data %>% filter(treatment == treatment_val)
+    
+    # Plot comparing cell types within each treatment, with days on x-axis and y as the measurement
+    p <- ggplot(treatment_summary, aes(x = factor(day), y = mean, fill = treatment, color = treatment)) +
+     # Bars with consistent position dodge and group interaction
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), 
+           width = 0.8, size = 1, aes(alpha = cell, group = interaction(cell, treatment))) +
+    scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, by = 20), labels = scales::percent_format(,1)) +
+  
+  # Custom colors for fill (cell type) and outline (treatment)
+    scale_fill_manual(name = "S3D21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_color_manual(name = "S3T21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+
+  # Error bars with the same position dodge and group interaction
+    geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, treatment)), 
+                width = 0.4, size = 0.5, position = position_dodge(width = 0.8), color = "black") +
+
+  # Data points for individual measurements with the same group interaction
+    geom_point(data = treatment_data, aes(x = factor(day), y = value, group = interaction(cell, treatment)), 
+             position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8), 
+             size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+
+    labs(
+      title = paste(measure, "-", treatment_val, "treatment"),
+      x = "Day", 
+      y = measure) +
+
+   theme_Publication() +
+   guides(
+    fill = guide_legend(order = 1, override.aes = list(alpha = 1)),
+    color = guide_legend(order = 2, override.aes = list(fill = NA)), 
+    alpha = "none"  # Hide alpha legend 
+  ) 
+    
+    # Define the filename for saving the plot
+    file_name <- paste0(treatment_val, "_", measure, ".pdf")
+  
+    ggsave(file_name, path = "03_plots/bytreatment", plot = p, width = 7, height = 6, units = "in")
+  
+  }
+}
+```
+
+
+(4)By cell graphs
+```{r create subfolder for individual cell graphs}
+# Define the path and folder name
+folder_path <- "03_plots/bycell"
+
+# Create the folder
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+  message("Folder created at: ", folder_path)
+} else {
+  message("Folder already exists at: ", folder_path)
+}
+```
+
+```{r by cell graphs}
+
+for (measure in measurements) {
+  summary_data <- sumstats_all %>% 
+    filter(measurement == measure)
+  
+  measure_data <- long_data %>%
+    filter(measurement == measure)
+  
+  # Loop through each cell type to plot individually
+  for (cell_type in unique(measure_data$cell)) {
+    
+    # Filter data for the current cell type
+    cell_data <- measure_data %>% filter(cell == cell_type)
+    cell_summary <- summary_data %>% filter(cell == cell_type)
+    
+    # Check if specific treatments are present in the filtered data
+    has_S3D21 <- "S3D21" %in% unique(cell_summary$cell)
+    has_S3T21 <- "S3T21" %in% unique(cell_summary$cell)
+    
+    # Start building the ggplot
+    p <- ggplot(cell_summary, aes(x = factor(day), y = mean, fill = treatment, color = treatment)) +
+      geom_bar(stat = "identity", position = position_dodge(width = 0.9), 
+               width = 0.8, size = 1, aes(alpha = cell, group = interaction(cell, treatment))) +
+      scale_y_continuous(limits = c(0, 100), labels = scales::percent_format(,1)) +
+      scale_fill_manual(name = "Treatment", values = setNames(color_map$Color, color_map$Group), drop = TRUE) +
+      scale_color_manual(name = "Treatment", values = setNames(color_map$Color, color_map$Group), drop = TRUE) +
+      scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+      geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, treatment)), 
+                    width = 0.3, size = 0.5, position = position_dodge(width = 0.9), color = "black") +
+      geom_point(data = cell_data, aes(x = factor(day), y = value, group = interaction(cell, treatment)), 
+                 position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.9), 
+                 size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+      labs(
+        title = paste(measure, "-", cell_type),
+        x = "Day", 
+        y = measure
+      ) +
+      theme_Publication() 
+    
+    # Conditional legends based on presence of treatments
+    guides_list <- list(alpha = "none")  # Always hide alpha legend
+    
+    if (has_S3D21) {
+      guides_list$fill <- guide_legend(override.aes = list(alpha = 1))
+      guides_list$color <- "none"  # Hide color legend if S3D21 is present
+}
+
+    if (has_S3T21) {
+      guides_list$color <- guide_legend(override.aes = list(fill = NA))
+      guides_list$fill <- "none"  
+    }
+    
+    p <- p + do.call(guides, guides_list)
+    
+    # Save the plot
+    file_name <- paste0(cell_type, "_", measure, ".pdf")
+    ggsave(file_name, path = "03_plots/bycell", plot = p, width = 5, height = 6, units = "in")
+  }
+}
+```
+
+(5) By day - all measurements  
+```{r create subfolder for individual treatment graphs}
+# Define the path and folder name
+folder_path <- "03_plots/byday"
+
+# Create the folder
+if (!dir.exists(folder_path)) {
+  dir.create(folder_path, recursive = TRUE)
+  message("Folder created at: ", folder_path)
+} else {
+  message("Folder already exists at: ", folder_path)
+}
+```
+
+```{r by day graphs}
+
+
+for (current_day in unique(long_data$day)) {
+  
+  # Filter data for the current day
+  summary_data <- sumstats_all %>%
+    filter(day == current_day)
+  
+  day_data <- long_data %>%
+    filter(day == current_day)
+  
+  # Loop through each treatment to plot individually
+  for (treatment_val in unique(day_data$treatment)) {
+    
+    # Filter data for the current treatment
+    treatment_data <- day_data %>%
+      filter(treatment == treatment_val)
+    treatment_summary <- summary_data %>%
+      filter(treatment == treatment_val)
+    
+    # Plot comparing measurements within each treatment, with measurements on x-axis and y as the mean value
+    p <- ggplot(treatment_summary, aes(x = factor(measurement), y = mean, fill = treatment_val, color = treatment_val)) +
+      # Bars with consistent position dodge and group interaction
+      geom_bar(stat = "identity", position = position_dodge(width = 0.8), 
+               width = 0.8, size = 1, aes(alpha = cell, group = interaction(cell, measurement))) +
+      scale_y_continuous(labels = scales::percent_format(,1)) +
+      
+      # Custom colors for fill (cell type) and outline (cell type)
+       scale_fill_manual(name = "S3D21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_color_manual(name = "S3T21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+      
+      # Error bars with the same position dodge and group interaction
+      geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, measurement)), 
+                    width = 0.4, size = 0.5, position = position_dodge(width = 0.8), color = "black") +
+      
+      # Data points for individual measurements with the same group interaction
+      geom_point(data = treatment_data, aes(x = factor(measurement), y = value, group = interaction(cell, measurement)), 
+                 position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8), 
+                 size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+      
+      labs(
+        title = paste("Day", current_day, "-", treatment_val, "treatment"),
+        x = NULL, 
+        y = NULL
+      ) +
+      
+      theme_Publication() +
+      #theme(legend.position = "right")+
+      guides(
+      fill = guide_legend(order = 1, override.aes = list(alpha = 1)),
+      color = guide_legend(order = 2, override.aes = list(fill = NA)), 
+      alpha = "none"  # Hide alpha legend 
+    ) 
+    
+    # Define the filename for saving the plot
+    file_name <- paste0("Day_", current_day, "_", treatment_val, ".pdf")
+    
+    ggsave(file_name, path = "03_plots/byday", plot = p, width = 6, height = 6, units = "in")
+  }
+}
+```
+
+
+
+(6) COMBINED GRAPH - D21 + T21 multiple treatments 
+```{r filter}
+#filtering data for days across treatment, not always necessary but for this data Ra was only collected on even days and ctrl was collected all days 
+
+sumstats_all <- sumstats_all %>% filter(day %in% c("4", "6", "8", "10"))
+long_data <- long_data %>% filter(day %in% c("4", "6", "8", "10"))
+
+
+```
+
+#there are two treatments present CTRL and RA. 
+```{r generating graphs}
+
+for (measure in measurements) {
+  measurement_data <- sumstats_all %>% 
+    filter(measurement == measure)
+  
+  raw_data_subset <- long_data %>%
+    filter(measurement == measure)
+  
+  # bar graph grouped by treatment comparing cell type 
+  p <- ggplot(measurement_data, aes(x = factor(day), y = mean, fill = treatment, color = treatment)) +
+  
+    # Bars with consistent position dodge and group interaction
+    geom_bar(stat = "identity", position = position_dodge(width = 0.8), 
+           width = 0.7, size = 1, aes(alpha = cell, group = interaction(cell, treatment))) +
+    scale_y_continuous(limits = c(0, 100), labels = scales::percent_format(,1)) +
+  
+  # Custom colors for fill (cell type) and outline (treatment)
+    scale_fill_manual(name = "S3D21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_color_manual(name = "S3T21", values = setNames(color_map$Color, color_map$Group)) +
+    scale_alpha_manual(values = c("S3D21" = 0.9, "S3T21" = 0)) +
+
+  # Error bars with the same position dodge and group interaction
+    geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd, group = interaction(cell, treatment)), 
+                width = 0.4, size = 0.5, position = position_dodge(width = 0.8), color = "black") +
+
+  # Data points for individual measurements with the same group interaction
+    geom_point(data = raw_data_subset, aes(x = factor(day), y = value, group = interaction(cell, treatment)), 
+             position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8), 
+             size = 1.5, alpha = 0.8, color = "black", show.legend = FALSE) +
+
+    labs(x = "Day", 
+       y = measure) +
+
+   theme_Publication() +
+   guides(
+    fill = guide_legend(order = 1, override.aes = list(alpha = 1)),
+    color = guide_legend(order = 2, override.aes = list(fill = NA)), 
+    alpha = "none"  # Hide alpha legend
+  ) +
+
+  theme(legend.position = "right")
+
+  
+  # Save plots
+  ggsave(filename = paste0(measure, "_combined.pdf"), path = "03_plots",
+         plot = p, width = 10, height = 8, units = "in")
+  
+}
+  
+```
+
+```{r xyz}
+
+```
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

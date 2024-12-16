@@ -1,0 +1,344 @@
+---
+title: "Assumptions and Statistical Comparisons -- TRT vs CTRL"
+output: html_document
+date: "2024-11-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Analysis overview
+For each day and each measurement:
+    (1) Compare TRTvCTRL for each cell type 
+    (2) Compare T21vD21 within each treatment 
+
+## Data Inspection and Summary Stats:
+STEP1: Load Libraries and Data 
+STEP2: Check Assumptions
+STEP3: Run Statistical Analysis  
+STEP4: Generate Matching Bar Plots 
+
+
+STEP1: Load Libraries and Data 
+```{r loading libraries, include=FALSE}
+
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(ggpubr)
+library(ggthemes)
+library(ggplot2)
+
+```
+
+```{r load data, include=FALSE}
+
+data <- read_csv("01_tidy_data/data.csv")
+long_data <- read_csv("01_tidy_data/long_data.csv")
+color_map <- read_csv("01_tidy_data/color_map.csv")
+measurements <- readRDS("01_tidy_data/measurements.rds")
+treatment_order <- readRDS("01_tidy_data/treatment_order.rds")
+sumstats_all <- read_csv("02_tables/sumstats_all.csv") 
+
+```
+
+# STEP2: Check  Assumptions for Data in Comparison 
+
+TRTvCTRL  and D21vT21 
+```{r variance and normality }
+library(car) #for levenes test
+
+# Data frame to store results
+assumption_results <- data.frame(
+  Day = integer(),
+  Measurement = character(),
+  Treatment1 = character(),
+  Treatment2 = character(),
+  Cell1 = character(),
+  Cell2 = character(),
+  Comparison = character(),
+  Control_Shapiro_PValue = numeric(),
+  Treatment_Shapiro_PValue = numeric(),
+  Normality = character(),
+  Levene_PValue = numeric(),
+  Variance_equal = logical(),
+  stringsAsFactors = FALSE
+)
+
+# Specify  control 
+control_label <- "CTRL" 
+
+# Loop through days and measurement to run tests
+for (day_val in unique(data$day)) {
+  for (measure in measurements) {
+    
+    # Filter data for the current day and measurement
+    day_data <- data %>%
+      filter(day == day_val) %>%
+      select(cell, treatment, !!sym(measure)) %>%
+      na.omit() 
+    
+    #Using day data loop through cell type to compare each treatment to control
+    for (cell_type in unique(day_data$cell)) {
+      cell_data <- day_data %>% filter(cell == cell_type)
+      
+      # Filter control
+      control_data <- cell_data %>% filter(treatment == control_label)
+      
+      # Within each cell type loop through treatments for comparing against control
+      for (treatment_val in unique(cell_data$treatment)) {
+        if (treatment_val != control_label) {
+          
+          # Filter for treatment group 
+          treatment_data <- cell_data %>% filter(treatment == treatment_val)
+          
+          # Combine control and treatment data
+          comparison_data <- bind_rows(control_data, treatment_data)
+          
+          # Run tests if at least two groups (control and  treatment)
+          if (n_distinct(comparison_data$treatment) >= 2) {
+            
+            # Shapiro-Wilk test for normality within each group
+            control_shapiro <- shapiro.test(control_data[[measure]])$p.value
+            treatment_shapiro <- shapiro.test(treatment_data[[measure]])$p.value
+            normality <- ifelse(control_shapiro > 0.05 & treatment_shapiro > 0.05, "Normal", "Not Normal")
+            
+            # Levene’s test for homogeneity of variance 
+            levene_test <- leveneTest(as.formula(paste(measure, "~ treatment")), data = comparison_data)
+            variance_equal <- levene_test$`Pr(>F)`[1] > 0.05  # TRUE if variances are equal
+            
+            # Store results for normality and variance tests in a single entry
+            assumption_results <- assumption_results %>%
+              bind_rows(data.frame(
+                Day = day_val,
+                Measurement = measure,
+                Treatment1 = control_label,
+                Treatment2 = treatment_val,
+                Cell1 = cell_type,
+                Cell2 = "NA",
+                Comparison = paste0(cell_type, "--", treatment_val, "vs", control_label),
+                Control_Shapiro_PValue = control_shapiro,
+                Treatment_Shapiro_PValue = treatment_shapiro,
+                Normality = normality,
+                Levene_PValue = levene_test$`Pr(>F)`[1],
+                Variance_equal = variance_equal
+              ))
+          }
+        }
+      }
+    }
+    
+    # Loop through treatments to compare cell types within that treatment
+    for (treatment_val in unique(day_data$treatment)) {
+      treatment_data <- day_data %>% filter(treatment == treatment_val)
+      
+      # Run tests if there are at least two unique cell types
+      if (n_distinct(treatment_data$cell) >= 2) {
+        
+        # designate one cell as "control" and the other as "treatment" for storing data 
+        control_cell <- "S3D21"
+        treatment_cell <- "S3T21"
+        
+        # Filter data for the control and treatment cell types
+        control_data <- treatment_data %>% filter(cell == control_cell)
+        treatment_data <- treatment_data %>% filter(cell == treatment_cell)
+        
+        # Combine control and treatment data
+        comparison_data <- bind_rows(control_data, treatment_data)
+          
+        control_shapiro <- shapiro.test(control_data[[measure]])$p.value
+        treatment_shapiro <- shapiro.test(treatment_data[[measure]])$p.value
+        normality <- ifelse(control_shapiro > 0.05 & treatment_shapiro > 0.05, "Normal", "Not Normal")
+   
+        levene_test <- leveneTest(as.formula(paste(measure, "~ cell")), data = comparison_data)
+        variance_equal <- levene_test$`Pr(>F)`[1] > 0.05  # TRUE if variances are equal
+
+        assumption_results <- assumption_results %>%
+          bind_rows(data.frame(
+            Day = day_val,
+            Measurement = measure,
+            Treatment1 = treatment_val,
+            Treatment2 = "NA",
+            Cell1 = control_cell,
+            Cell2 = treatment_cell,
+            Comparison = paste0(treatment_val, "--", treatment_cell, "vs", control_cell),
+            Control_Shapiro_PValue = control_shapiro,  
+            Normality = normality,
+            Treatment_Shapiro_PValue = treatment_shapiro,
+            Levene_PValue = levene_test$`Pr(>F)`[1],
+            Variance_equal = variance_equal
+          ))
+      }
+    }
+  }
+}
+
+write.csv(assumption_results,"02_tables/assumption_results.csv", row.names = FALSE)
+print(assumption_results)
+
+```
+
+# STEP3: Run Statistical Analysis
+Common tests in one loop
+
+```{r comparision }
+library(ggpubr)
+
+results_cell <- data.frame(
+  Measurement = character(),
+  Day = numeric(),
+  Treatment = character(),
+  Paired_TTest_PValue = numeric(),
+  Welch_TTest_PValue = numeric(),
+  Kruskal_Wallis_PValue = numeric(),
+  Wilcoxon_PValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+results_treatment <- data.frame(
+  Measurement = character(),
+  Day = numeric(),
+  Cell = character(),
+  Compared_Treatment = character(),  
+  Paired_TTest_PValue = numeric(),
+  Welch_TTest_PValue = numeric(),
+  Kruskal_Wallis_PValue = numeric(),
+  Wilcoxon_PValue = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Outer loop: Compare each treatment to the control group
+control_group <- "CTRL"  # Define control group 
+treatment_groups <- unique(data$treatment[data$treatment != control_group])
+
+for (treatment_val in treatment_groups) {
+  # Subset data for the current treatment and control
+  subset_data <- data %>%
+    filter(treatment %in% c(control_group, treatment_val))
+
+  # Inner Loop 1: Compare cell types within a treatment and day for each measurement
+  for (measure in measurements) {
+    for (day_val in unique(subset_data$day)) {
+      for (current_treatment in unique(subset_data$treatment)) {
+       
+         # Filter data for current day and  treatment
+        data_day_treatment <- subset_data %>%
+          filter(day == day_val, treatment == current_treatment)
+
+        # Perform tests if there are at least two cell types
+        if (length(unique(data_day_treatment$cell)) > 1) {
+          kruskal_test <- kruskal.test(as.formula(paste(measure, "~ cell")), data = data_day_treatment)
+          
+          
+          # Run Wilcoxon, Welch, and Paired t-tests if exactly two cell types
+          if (length(unique(data_day_treatment$cell)) == 2) {
+            
+            wilcox_test <- wilcox.test(as.formula(paste(measure, "~ cell")), data = data_day_treatment)
+            wilcox_p <- wilcox_test$p.value
+            
+            welch_test <- t.test(as.formula(paste(measure, "~ cell")), data = data_day_treatment, var.equal = FALSE)
+            welch_p <- welch_test$p.value
+            
+            # Paired t-test 
+            # Step 1: Reshape the data to align CTRL and RA replicates
+            data_paired <- data_day_treatment %>%
+              select(exp_no, cell, measure) %>%  
+              spread(key = cell, value = measure)
+            
+            # Step 3: Perform a paired t-test
+            if (all(c("S3D21", "S3T21") %in% colnames(data_paired))) {
+              paired_test <- t.test(data_paired$S3D21, data_paired$S3T21, paired = TRUE)
+              paired_p <- paired_test$p.value
+            } 
+          }
+        
+          
+          # Store results for cell type comparisons
+          results_cell <- rbind(results_cell, data.frame(
+            Measurement = measure,
+            Day = day_val,
+            Treatment = current_treatment,
+            Paired_TTest_PValue = paired_p,
+            Welch_TTest_PValue = welch_p,
+            Kruskal_Wallis_PValue = kruskal_test$p.value,
+            Wilcoxon_PValue = wilcox_p
+          ))
+        }
+      }
+    }
+  }
+  
+  # Inner Loop 2: Compare treatments within each cell type and day for each measurement
+  for (measure in measurements) {
+    for (day_val in unique(subset_data$day)) {
+      for (cell_val in unique(subset_data$cell)) {
+        
+        # Filter data for current day, cell type, and measurement
+        data_day_cell <- subset_data %>%
+          filter(day == day_val, cell == cell_val)
+        
+        # Perform tests only if there are at least two treatments
+        if (length(unique(data_day_cell$treatment)) > 1) {
+          kruskal_test <- kruskal.test(as.formula(paste(measure, "~ treatment")), data = data_day_cell)
+          
+          # Run Wilcoxon, Welch, and Paired t-tests if exactly two treatments
+          if (length(unique(data_day_cell$treatment)) == 2) {
+            
+            wilcox_test <- wilcox.test(as.formula(paste(measure, "~ treatment")), data = data_day_cell)
+            wilcox_p <- wilcox_test$p.value
+            
+            welch_test <- t.test(as.formula(paste(measure, "~ treatment")), data = data_day_cell, var.equal = FALSE)
+            welch_p <- welch_test$p.value
+            
+            # Paired t-test 
+            # Step 1: Reshape the data 
+            data_paired <- data_day_cell %>%
+              select(exp_no, treatment, measure) %>%  
+              spread(key = treatment, value = measure)
+            
+            # Step 3: Perform a paired t-test
+            if (all(c(control_group, treatment_val) %in% colnames(data_paired))) {
+              paired_test <- t.test(data_paired[[control_group]], data_paired[[treatment_val]], paired = TRUE)
+              paired_p <- paired_test$p.value
+            } 
+          }
+          
+          # Store results
+          results_treatment <- rbind(results_treatment, data.frame(
+            Measurement = measure,
+            Day = day_val,
+            Cell = cell_val,
+            Compared_Treatment = paste(treatment_val, "vs", control_group),
+            Paired_TTest_PValue = paired_p,
+            Welch_TTest_PValue = welch_p,
+            Kruskal_Wallis_PValue = kruskal_test$p.value,
+            Wilcoxon_PValue = wilcox_p
+            
+          ))
+        }
+      }
+    }
+  }
+}
+
+
+print(results_cell)
+print(results_treatment)
+
+
+
+```
+
+```{r save stats }
+write.csv(results_cell,"02_tables/cell_stats.csv")
+write.csv(results_treatment,"02_tables/treatment_stats.csv")
+```
+
+```{r xyz }
+
+```
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

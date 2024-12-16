@@ -1,0 +1,87 @@
+Flow R scripts for flow analysis.
+-Each Rmd is setup to run on an empty environemnt with eveerything needed loaded within that Rmd.
+
+theme_Publication.R --> theme for graphs
+
+*FOLDERS:* 
+  00_raw_data - raw unmanipulated data
+  01_tidy_data - manipulated/transformed/subsetted data or new dataframes generated for downstream analysis
+  02_tables - tabled results from analyses preformed 
+  03_ plots - visuals generated
+
+*Rmd Files:*
+  _1.data_prep.Rmd
+    This scrift only needs to be ran ONCE.
+      - Script preps and inspects data for use in downstream analysis. It will save a new dataframe in tidy data folder to be used for analysis. 
+      
+      STEP1: Import data and Prep Data
+      STEP2: Visually Inspect Data 
+      STEP3: Prep Tools for Downstream Analysis
+      
+  _2.data_plots.Rmd
+  
+      STEP1: Load Data 
+      STEP2: Generate Summary Statistics 
+        - Generate and save summary statistics for use in generating bargraphs of flow data.  
+      STEP3: Generate First Pass Bar Graphs of All Data
+        - Generate a plots: Run theme_publication in theme_Publication.R 
+            (1) main folder: combined grid of bargraphs for all flow measurments and treatment arms 
+            (2) faceted:: (a) facet by treatment to compare T21vD21 (b) facet by cell to compare treatment 
+            (3) bytreatment: individual graphs of each treatment for each flow measure visualizing cell type comparisions
+            (4) bycell: individual graphs of each cell type for each flow measure visualizing treatment comparisions
+            (5) byday: individual plots for each day and treatment combination of all measurements and cell types 
+            (6) main folder: combined graph of cell types and multiple treatments for each measurment 
+      
+  _3.stats_analysis_vsCTRL.Rmd
+  
+      STEP1: Load Libraries and Data 
+      STEP2: Assumptions for Data in Comparison 
+        - Script will run test of equal variance and normality assumptions on data. For most accurate results you 
+        should only include data that will be directly compared for these tests, thus this script runs 
+        assumptions for each flow measurement at a given day (1) For each treatment, T21 vs D21  and (2) For each 
+        cell type, treatment vs control. As these are the comparision I wish to make.
+      
+      STEP3: 
+      - Similarly the script will run four common statistic tests 
+            (1) Kruskal Wallis Multiple Comparision Non Parametric Test 
+            (2) Wilcoxon signed-rank Test 
+            (3) Welch's Paired Non Parametric T Test 
+            (4) Paired T Test. 
+        Results for assumptions and statistic tests are store in two  dataframe (a) cell comparision and (b) treatment comparision 
+
+      notes: The control group is manually defined in the code as "CTRL" if you want to change the control group
+         you can do so by just changing that line of code. The code is set up to save the file with the 
+         treatment you set as the control. For example if you set control = CTRL the file will save as 
+         TreatmentvsCTRL. If you set control = RA then file will say TreatmentvsRA. I would recommend also 
+         editing the folder code to create a folder to match your new control arm. or to save differently 
+      
+    _4.count.Rmd
+        - script for analyzing cell count data. Generates line and best fit graphs. Run stats comparing to 
+          CTRL treatment and D21 vs T21 
+          
+
+STATISTICS GUIDE 
+--------------------------------------------------------------------
+#If variance and normality pass: parametric test
+  1. ANOVA - multiple comparison
+     a.tukeys.temp.Rmd -- all comparisons 
+     b.contrast.comp.temp.rmd -- select comparison 
+  2. T-test paired (2 groups)
+
+#If variance passed and normality failed: 
+  1. Kruskal Wallis Test (ANOVA Alt) -- ANOva alt, multiple comparisons (not paired)
+      a. dunns as follow up if more thancomparisons 
+  2. Mann Whitney U test/Wilcoxon rank-sum tests - t-test (not paired) 
+  3. Wilcoxon signed-rank test - t-test paired alt --- *** needs higher samples size  
+  
+#If varaiance and normality failed: 
+  a. Welch's -- non normal var and dist -- (2 groups)
+
+--------------------------------------------------------------------------------------
+
+Stat notes:
+Tukey's Honest Significant Difference (HSD) test automatically provides adjusted p-values to account for multiple comparisons. These p-values, often referred to as "corrected" or "adjusted," are included in the TukeyHSD() output under the p adj column.
+
+How Tukey's HSD Adjusts P-Values
+Tukey's method controls the family-wise error rate (FWER), ensuring that the probability of making at least one Type I error across all pairwise comparisons is below your significance level (commonly 0.05).
+This adjustment is necessary when performing multiple comparisons because it reduces the likelihood of false positives.

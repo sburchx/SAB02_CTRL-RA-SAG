@@ -1,0 +1,132 @@
+---
+title: "SAB01 Data Prep"
+author: "Shalise Burch"
+output: html_document
+date: "2024-11-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#ONLY NEED TO RUN THIS RMD ONCE, FOLLOW UP RMDS USE SAVED TIDY DATA
+RMD RAN: 11.11.24 @ 9:18PM
+
+#DATA = SAB01 flow data
+SET 3 D21 and T21 - with 2 treatment arms RA and CTRL
+
+
+## Data Prep :
+STEP1: Import data and Prep Data
+STEP2: Visually Inspect Data 
+STEP3: Prep Tools for Downstream Analysis
+
+
+#STEP1: Import and Check Data 
+```{r load and check data}
+
+library(readxl)
+
+#import data 
+data <- read_excel("00_raw_data/r.SAB01flow.xlsx", 
+    sheet = "r.SAB01")
+data
+
+
+```
+
+
+```{r convert decimals to percent values}
+
+# check data to make sure you need this step, excel often saves data as percentages in decimal form 
+data$dbl_neg <- data$dbl_neg * 100
+data$isl_pos <- data$isl_pos * 100
+data$islctnt_pos <- data$islctnt_pos * 100
+data$tot_isl <- data$tot_isl * 100
+data$ctnt_pos <- data$ctnt_pos * 100
+data$tot_ctnt <- data$tot_ctnt * 100
+
+data
+
+```
+
+```{r save transformed data}
+write.csv(data,"01_tidy_data/data.csv", row.names = FALSE)
+```
+
+#STEP2: Visually Inspect Data -- total islet1 and total ctnt only 
+```{r data visualization} 
+library(dplyr)
+library(tidyverse)
+library(ggpubr)
+library(ggthemes)
+
+#option1
+qplot(x = day, y = tot_isl, geom = "point", color = treatment, shape=treatment, size=1, data = data) +
+  facet_grid(.~cell, labeller = label_both)
+
+
+qplot(x = day, y = tot_ctnt, geom = "point", color = treatment, shape=treatment, size=1, data = data) +
+  facet_grid(.~cell, labeller = label_both)
+
+
+#option2 
+ggboxplot(data, x = "day", y = "tot_isl", color = "cell", ylab = "Expression", xlab = "Day")+ 
+  facet_grid(.~treatment, labeller = label_both)
+
+
+ggboxplot(data, x = "day", y = "tot_ctnt", color = "cell", ylab = "Expression", xlab = "Day")+
+    facet_grid(.~treatment, labeller = label_both)
+
+#can save plot if desired -- this code will save last generated plot -- 
+#ggsave(path = "03_plots", filename = str_c("qplot",  format(Sys.Date(), "%Y%m%d"), format(Sys.time(), "_%H%M"), ".pdf"), height = 4, width = 8, units = "in")
+```
+
+#STEP3 Create tools to use in down stream analysis
+UPDATE AS NEEDED
+
+```{r measurments}
+
+#Vector of flow measurements to use in loops, also used to order graph facet so put in specific order 
+
+measurements <- c("dbl_neg", "isl_pos", "islctnt_pos", "ctnt_pos", "tot_isl", "tot_ctnt")
+saveRDS(measurements, file = "01_tidy_data/measurements.rds") #save as R object not CVS
+
+```
+
+
+```{r long from }
+
+# Reshape flow measurement columns to long form for looping and applying raw data points to bar graphs. 
+long_data <- data %>%
+  pivot_longer(cols = c(all_of(measurements)),  #only reshape the measurements you specified above 
+               names_to = "measurement",         #column for measurement names
+               values_to = "value")              #column for measurement values
+
+
+write.csv(long_data,"01_tidy_data/long_data.csv", row.names = FALSE )
+```
+
+
+```{r color customization}
+
+# Create data frame specifying colors for each treatment and cell type to use in graphs
+color_map <- data.frame(
+  Group = c("CTRL", "RA", "VIS", "SAG", "RA&SAG", "RA&VIS"),
+  Color = c("orange", "red", "darkorchid1", "cornflowerblue", "darkturquoise", "chartreuse2")
+)
+
+write.csv(color_map,"01_tidy_data/color_map.csv", row.names = FALSE)
+```
+
+
+```{r define treatment order for graphing}
+
+treatment_order <- c("CTRL", "SAG", "VIS", "RA", "RA&SAG", "RA&VIS")
+saveRDS(treatment_order, file = "01_tidy_data/treatment_order.rds") #save as R object not CVS
+
+```
+
+
+##DONE. Don't need to run this RMD again--- will used tidy data for downstream analysis 
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
